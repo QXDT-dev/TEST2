@@ -226,65 +226,116 @@
             notDeployerAlert.classList.add('d-none');
         }
         
-        // Mint tokens function
-        async function mintTokens() {
-            try {
-                // Validate inputs
-                const recipient = recipientAddress.value.trim();
-                const amount = mintAmount.value.trim();
-                
-                if (!ethers.utils.isAddress(recipient)) {
-                    throw new Error("Invalid recipient address");
-                }
-                
-                if (!amount || isNaN(amount) {
-                    throw new Error("Invalid amount");
-                }
-                
-                // Convert to token units (8 decimals)
-                const amountInUnits = ethers.utils.parseUnits(amount, 8);
-                
-                mintButton.disabled = true;
-                transactionAlert.classList.remove('d-none');
-                transactionAlert.textContent = "Transaction in progress. Please confirm in MetaMask...";
-                
-                const tx = await contract.mintByDeployer(recipient, amountInUnits);
-                transactionAlert.textContent = `Transaction sent! Waiting for confirmation... (TX: ${shortenTxHash(tx.hash)})`;
-                
-                await tx.wait();
-                transactionAlert.textContent = "Tokens minted successfully!";
-                transactionAlert.classList.remove('alert-info');
-                transactionAlert.classList.add('alert-success');
-                
-                // Clear form
-                recipientAddress.value = "";
-                mintAmount.value = "";
-                
-                // Hide alert after 5 seconds
-                setTimeout(() => {
-                    transactionAlert.classList.add('d-none');
-                    transactionAlert.classList.remove('alert-success');
-                    transactionAlert.classList.add('alert-info');
-                }, 5000);
-            } catch (error) {
-                console.error("Error minting tokens:", error);
-                transactionAlert.textContent = `Error: ${error.message}`;
-                transactionAlert.classList.remove('alert-info');
-                transactionAlert.classList.add('alert-danger');
-            } finally {
-                mintButton.disabled = false;
-            }
+    async function mintTokens() {
+    try {
+        // 1. Disable UI and show loading state
+        setMintingState(true, "Initializing transaction...");
+
+        // 2. Validate recipient address
+        const recipient = recipientAddress.value.trim();
+        if (!ethers.utils.isAddress(recipient)) {
+            throw new Error("Please enter a valid Ethereum address starting with 0x");
+        }
+
+        // 3. Validate amount
+        const amount = mintAmount.value.trim();
+        const amountNum = Number(amount);
+        
+        if (!amount) {
+            throw new Error("Please enter an amount");
         }
         
-        // Helper to shorten address
-        function shortenAddress(address) {
-            return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+        if (isNaN(amountNum)) {
+            throw new Error("Amount must be a valid number");
         }
         
-        // Helper to shorten transaction hash
-        function shortenTxHash(hash) {
-            return `${hash.substring(0, 10)}...`;
+        if (!isFinite(amountNum)) {
+            throw new Error("Amount cannot be infinite");
         }
+        
+        if (amountNum <= 0) {
+            throw new Error("Amount must be greater than zero");
+        }
+        
+        if (amountNum > 1000000) { // Example max limit
+            throw new Error("Amount cannot exceed 1,000,000 QXDT");
+        }
+
+        // 4. Convert to token units (8 decimals)
+        const amountInUnits = ethers.utils.parseUnits(amount, 8);
+        
+        // 5. Update UI - waiting for user confirmation
+        setMintingState(true, "Please confirm transaction in MetaMask...");
+
+        // 6. Execute the mint transaction
+        const tx = await contract.mintByDeployer(recipient, amountInUnits);
+        
+        // 7. Transaction sent - waiting for confirmation
+        setMintingState(true, `Transaction submitted (TX: ${shortenTxHash(tx.hash)})`);
+
+        // 8. Wait for transaction confirmation
+        const receipt = await tx.wait();
+        
+        // 9. On success
+        setMintingState(false, `Success! ${amount} QXDT minted to ${shortenAddress(recipient)}`, "success");
+        
+        // 10. Clear form
+        recipientAddress.value = "";
+        mintAmount.value = "";
+
+        // 11. Hide success message after delay
+        setTimeout(() => {
+            transactionAlert.classList.add('d-none');
+        }, 10000);
+
+    } catch (error) {
+        // Handle specific error cases
+        let errorMessage = error.message;
+        
+        if (error.code === 4001) {
+            errorMessage = "Transaction rejected by user";
+        } else if (error.code === -32603) {
+            errorMessage = "Transaction failed (insufficient funds?)";
+        } else if (error.data && error.data.message) {
+            errorMessage = error.data.message.replace('execution reverted: ', '');
+        }
+        
+        setMintingState(false, `Error: ${errorMessage}`, "error");
+    }
+}
+
+// Helper function to manage UI state
+function setMintingState(isProcessing, message, type = "info") {
+    // Set button state
+    mintButton.disabled = isProcessing;
+    
+    // Set alert message and style
+    transactionAlert.textContent = message;
+    transactionAlert.classList.remove('d-none', 'alert-info', 'alert-success', 'alert-danger');
+    
+    // Set alert type class
+    const alertClass = 
+        type === "success" ? "alert-success" :
+        type === "error" ? "alert-danger" : "alert-info";
+    transactionAlert.classList.add(alertClass);
+    
+    // Additional visual feedback
+    if (isProcessing) {
+        mintButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+    } else {
+        mintButton.textContent = "Mint Tokens";
+    }
+}
+
+// Utility function to shorten addresses
+function shortenAddress(address) {
+    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+}
+
+// Utility function to shorten transaction hashes
+function shortenTxHash(hash) {
+    return `${hash.substring(0, 10)}...${hash.substring(hash.length - 4)}`;
+}
         
         // Initialize the app when DOM is loaded
         document.addEventListener('DOMContentLoaded', init);
